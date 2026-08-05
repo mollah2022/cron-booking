@@ -1,0 +1,12 @@
+{
+    "cancelled_by_hotel": "cancelled",
+    "cancelled_by_accommodation": "cancelled",
+    "cancelled_by_guest": "cancelled",
+    "no_show": "cancelled",
+    "stayed": "approved",
+    "booked": "pending",
+    "S": "approved",
+    "F": "pending",
+    "C": "cancelled",
+    "cancelled": "cancelled"
+}

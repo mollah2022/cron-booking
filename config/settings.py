@@ -15,6 +15,9 @@ class Settings:
             # so we find it using a relative path
             config_path = Path(__file__).parent / "config.toml"
 
+        config_path = Path(config_path).resolve()
+        project_root = config_path.parent.parent
+
         with open(config_path, "rb") as f:
             config = tomllib.load(f)
 
@@ -23,7 +26,10 @@ class Settings:
         self.spark_master = config["spark"]["master"]
 
         # Warehouse related settings
-        self.warehouse_path = config["warehouse"]["path"]
+        warehouse_path = Path(config["warehouse"]["path"])
+        self.warehouse_path = str(
+            warehouse_path if warehouse_path.is_absolute() else project_root / warehouse_path
+        )
         self.catalog_name = config["warehouse"]["catalog_name"]
 
         # Iceberg table related settings
@@ -31,4 +37,7 @@ class Settings:
         self.iceberg_table_name = config["iceberg"]["table_name"]
 
         # Raw data path
-        self.raw_json_path = config["data"]["raw_json_path"]
+        raw_json_path = Path(config["data"]["raw_json_path"])
+        self.raw_json_path = str(
+            raw_json_path if raw_json_path.is_absolute() else project_root / raw_json_path
+        )
