@@ -17,7 +17,7 @@ warehouse/
 
 # Raw input data (json files) - stays local only, not pushed to git
 data/
-
+!data/.gitkeep
 # IDE
 .vscode/
 .idea/
