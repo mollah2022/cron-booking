@@ -1,0 +1,14 @@
+[spark]
+app_name = "booking_pipeline"
+master = "local[*]"
+
+[warehouse]
+path = "warehouse"
+catalog_name = "local"
+
+[iceberg]
+database = "booking_db"
+table_name = "bookings"
+
+[data]
+raw_json_path = "data/sample_booking.json"

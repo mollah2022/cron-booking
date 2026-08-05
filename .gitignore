@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+*.log
+
+# Iceberg local warehouse (data + metadata) - auto-generated, not pushed to git
+warehouse/
+
+# Raw input data (json files) - stays local only, not pushed to git
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Env / secrets (not used in this project, kept as a safety net)
+.env
