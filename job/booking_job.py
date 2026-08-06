@@ -9,41 +9,69 @@ from config.spark_session import SparkSessionFactory
 from service.extractor import BookingExtractor
 from service.transformer import BookingTransformer
 from service.exchange_rate_service import ExchangeRateService
+from service.validator import BookingSchemaValidator
 from repository.iceberg_repository import IcebergRepository
 from utils.mapping_loader import MappingLoader
+from utils.logger import get_logger
+from utils.exceptions import (
+    BookingPipelineError,
+    DataExtractionError,
+    ExchangeRateFetchError,
+    IcebergWriteError,
+)
+
+logger = get_logger(__name__)
 
 
 def main() -> None:
     settings = Settings()
 
     # --- OUTSIDE THE SPARK DAG ---
-    # This is a plain Python API call, made once, before Spark starts
-    # any transformation. The result is a single float number.
-    rate_service = ExchangeRateService()
-    usd_rate = rate_service.get_rate("EUR", "USD")
-    print(f"Fetched exchange rate (EUR -> USD): {usd_rate}")
+    try:
+        rate_service = ExchangeRateService()
+        usd_rate = rate_service.get_rate("EUR", "USD")
+        logger.info(f"Fetched exchange rate (EUR -> USD): {usd_rate}")
+    except Exception as e:
+        raise ExchangeRateFetchError(f"Failed to fetch exchange rate: {e}") from e
 
-
-    #--- SPARK SETUP---
+    # --- SPARK SETUP ---
     spark = SparkSessionFactory(settings).create_spark_session()
+    logger.info("Spark session created.")
 
     extractor = BookingExtractor(spark)
+    validator = BookingSchemaValidator()
     mapping_loader = MappingLoader()
     transformer = BookingTransformer(spark, mapping_loader)
     repository = IcebergRepository(spark, settings)
 
-    # --- INSIDE THE SPARK DAG ---
-    # usd_rate is passed in as a constant value here. Spark does not
-    # call the API again - it just multiplies every row by this
-    # single number, which is very fast.
+    # --- EXTRACT ---
+    try:
+        raw_df = extractor.extract(settings.raw_json_path)
+        logger.info(f"Extracted {raw_df.count()} raw record(s) from {settings.raw_json_path}")
+    except Exception as e:
+        raise DataExtractionError(f"Failed to extract raw data: {e}") from e
 
-    raw_df = extractor.extract(settings.raw_json_path)
+    # --- VALIDATE ---
+    validator.validate(raw_df)
+
+    # --- TRANSFORM (inside the Spark DAG) ---
     transformed_df = transformer.transform(raw_df, usd_rate)
+    logger.info("Transformation complete.")
 
-    repository.write(transformed_df)
-
-    print(f"Successfully wrote data to Iceberg table: {repository.full_table_name}")
+    # --- LOAD ---
+    try:
+        repository.write(transformed_df)
+        logger.info(f"Successfully wrote data to Iceberg table: {repository.full_table_name}")
+    except Exception as e:
+        raise IcebergWriteError(f"Failed to write to Iceberg table: {e}") from e
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BookingPipelineError as e:
+        logger.error(f"Pipeline failed: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error occurred: {e}")
+        sys.exit(1)
