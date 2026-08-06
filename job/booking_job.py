@@ -9,7 +9,7 @@ from config.spark_session import SparkSessionFactory
 from service.extractor import BookingExtractor
 from service.transformer import BookingTransformer
 from service.exchange_rate_service import ExchangeRateService
-from service.validator import BookingSchemaValidator
+from service.validator import BookingSchemaValidator, BookingDataQualityValidator
 from repository.iceberg_repository import IcebergRepository
 from utils.mapping_loader import MappingLoader
 from utils.logger import get_logger
@@ -39,7 +39,8 @@ def main() -> None:
     logger.info("Spark session created.")
 
     extractor = BookingExtractor(spark)
-    validator = BookingSchemaValidator()
+    schema_validator = BookingSchemaValidator()
+    data_quality_validator = BookingDataQualityValidator()
     mapping_loader = MappingLoader()
     transformer = BookingTransformer(spark, mapping_loader)
     repository = IcebergRepository(spark, settings)
@@ -52,11 +53,15 @@ def main() -> None:
         raise DataExtractionError(f"Failed to extract raw data: {e}") from e
 
     # --- VALIDATE ---
-    validator.validate(raw_df)
+    schema_validator.validate(raw_df)
 
     # --- TRANSFORM (inside the Spark DAG) ---
     transformed_df = transformer.transform(raw_df, usd_rate)
     logger.info("Transformation complete.")
+
+
+    # --- VALIDATE TRANSFORMED DATA (value/business rule check) ---
+    data_quality_validator.validate(transformed_df)
 
     # --- LOAD ---
     try:

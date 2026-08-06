@@ -25,3 +25,8 @@ class ExchangeRateFetchError(BookingPipelineError):
 class IcebergWriteError(BookingPipelineError):
     """Raised when writing data to the Iceberg table fails."""
     pass
+
+class DataQualityError(BookingPipelineError):
+    """Raised when transformed data fails business/data quality checks
+    (e.g. duplicate IDs, negative revenue, invalid currency)."""
+    pass
