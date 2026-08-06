@@ -1,7 +1,32 @@
 import requests
 
 
-class ExchangeRateService:
+from abc import ABC, abstractmethod
+
+import requests
+
+
+class BaseExchangeRateService(ABC):
+    """
+    Interface (abstract base class) for anything that can fetch a
+    currency exchange rate.
+
+    Why this exists (Dependency Inversion Principle):
+    - job/booking_job.py only needs to know "something with a
+      get_rate() method" - not specifically Frankfurter's API.
+    - If tomorrow we switch to a different provider (e.g. a paid
+      API with better reliability), we create a new class
+      implementing this same interface. booking_job.py barely changes.
+    """
+
+    @abstractmethod
+    def get_rate(self, from_currency: str, to_currency: str = "USD") -> float:
+        raise NotImplementedError
+
+
+
+
+class ExchangeRateService(BaseExchangeRateService):
     """
     Fetches currency exchange rates from a free public API
     (Frankfurter - no API key required).

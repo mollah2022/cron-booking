@@ -1,28 +1,41 @@
+from abc import ABC, abstractmethod
+
 from pyspark.sql import SparkSession, DataFrame
 
 
-class BookingExtractor:
+class BaseExtractor(ABC):
     """
-    This class is responsible for reading raw booking data
-    from a JSON file and converting it into a Spark DataFrame.
+    Interface (abstract base class) for anything that can extract
+    raw data into a Spark DataFrame.
 
-    Why a separate class for this?
-    - This class only knows how to "read" data.
-    - If tomorrow the data source changes (e.g. from JSON file
-      to an API or database), only this file needs to change.
-      No other file (transformer, loader) needs to know about it.
+    Why this exists (Dependency Inversion Principle):
+    - job/booking_job.py should depend on "some extractor that has
+      an extract() method" - not specifically on "BookingExtractor
+      that reads JSON files".
+    - If tomorrow we need to read from an API or a database instead
+      of a JSON file, we just create a new class that implements
+      this same interface (e.g. ApiExtractor). booking_job.py's
+      code barely needs to change.
+    """
+
+    @abstractmethod
+    def extract(self, source_path: str) -> DataFrame:
+        raise NotImplementedError
+
+
+class BookingExtractor(BaseExtractor):
+    """
+    Reads raw booking data from a JSON/JSONL file and converts it
+    into a Spark DataFrame. This is one implementation of BaseExtractor.
     """
 
     def __init__(self, spark: SparkSession):
         self.spark = spark
 
-    def extract(self, json_path: str) -> DataFrame:
+    def extract(self, source_path: str) -> DataFrame:
         """
-        Reads a JSON file and returns a Spark DataFrame.
-
-        multiLine=True is used because our booking JSON is
-        a single, nicely formatted (multi-line) JSON object,
-        not one JSON record per line.
+        Reads a JSON/JSONL file and returns a Spark DataFrame.
+        Each line in the file is treated as one JSON record.
         """
-        df = self.spark.read.option("multiLine", "false").json(json_path)
+        df = self.spark.read.json(source_path)
         return df

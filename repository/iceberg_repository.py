@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+
 from pyspark.sql import SparkSession, DataFrame, functions as F
 
 from config.settings import Settings
@@ -7,7 +9,30 @@ from utils.exceptions import IcebergWriteError
 logger = get_logger(__name__)
 
 
-class IcebergRepository:
+class BaseRepository(ABC):
+    """
+    Interface (abstract base class) for anything that can store
+    and retrieve our booking data.
+
+    Why this exists (Dependency Inversion Principle):
+    - job/booking_job.py only needs to know "something with a
+      write() and read() method" - it doesn't need to know we are
+      specifically using Iceberg.
+    - If tomorrow we switch to Delta Lake or plain Parquet tables,
+      we create a new class implementing this same interface
+      (e.g. DeltaLakeRepository), and booking_job.py barely changes.
+    """
+
+    @abstractmethod
+    def write(self, df: DataFrame) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def read(self) -> DataFrame:
+        raise NotImplementedError
+
+
+class IcebergRepository(BaseRepository):
     """
     Repository responsible for all read/write operations on the
     local Iceberg booking table.
