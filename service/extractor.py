@@ -24,5 +24,5 @@ class BookingExtractor:
         a single, nicely formatted (multi-line) JSON object,
         not one JSON record per line.
         """
-        df = self.spark.read.option("multiLine", "true").json(json_path)
+        df = self.spark.read.option("multiLine", "false").json(json_path)
         return df
