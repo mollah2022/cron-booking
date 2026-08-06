@@ -17,7 +17,10 @@ class ExchangeRateService:
       same value for the whole batch, so fetching it once is correct.
     """
 
-    BASE_URL = "https://api.frankfurter.app/latest"
+    BASE_URLS = [
+        "https://api.frankfurter.dev/v1/latest",
+        "https://api.frankfurter.app/latest",
+    ]
 
     def get_rate(self, from_currency: str, to_currency: str = "USD") -> float:
         """
@@ -26,10 +29,15 @@ class ExchangeRateService:
         """
         params = {"from": from_currency, "to": to_currency}
 
-        response = requests.get(self.BASE_URL, params=params, timeout=10)
-        response.raise_for_status()
+        last_error = None
+        for base_url in self.BASE_URLS:
+            try:
+                response = requests.get(base_url, params=params, timeout=60)
+                response.raise_for_status()
+                data = response.json()
+                rate = data["rates"][to_currency]
+                return float(rate)
+            except Exception as exc:
+                last_error = exc
 
-        data = response.json()
-        rate = data["rates"][to_currency]
-
-        return float(rate)
+        raise RuntimeError(f"Failed to fetch exchange rate from all endpoints: {last_error}") from last_error
