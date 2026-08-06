@@ -1,3 +1,4 @@
+import os
 import tomllib
 from pathlib import Path
 
@@ -10,12 +11,34 @@ class Settings:
     """
 
     def __init__(self, config_path: str = None):
-        if config_path is None:
-            # config.toml is in the same folder as this file (settings.py),
-            # so we find it using a relative path
-            config_path = Path(__file__).parent / "config.toml"
+        project_root = Path(__file__).resolve().parent.parent
 
-        config_path = Path(config_path).resolve()
+        if config_path is None:
+            config_path = os.getenv("BOOKING_CONFIG_PATH")
+
+        if config_path is None:
+            candidate_paths = [
+                project_root / "config" / "config.toml",
+                project_root / "config.toml",
+                Path(__file__).parent / "config.toml",
+            ]
+        else:
+            candidate_paths = [Path(config_path)]
+
+        resolved_config_path = None
+        for candidate in candidate_paths:
+            if not candidate.is_absolute():
+                candidate = project_root / candidate
+            if candidate.exists():
+                resolved_config_path = candidate.resolve()
+                break
+
+        if resolved_config_path is None:
+            raise FileNotFoundError(
+                "Could not find config.toml. Provide BOOKING_CONFIG_PATH or pass config_path."
+            )
+
+        config_path = resolved_config_path
         project_root = config_path.parent.parent
 
         with open(config_path, "rb") as f:

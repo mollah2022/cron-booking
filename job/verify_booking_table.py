@@ -5,7 +5,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from config.settings import Settings
-from config.spark_session import SparkSessionFactory
+from infra.spark_session import SparkSessionFactory
 
 
 def main() -> None:
