@@ -107,9 +107,28 @@ class BookingTransformer:
             F.col("commission.estimate_commission_amount.booker_currency").alias("revenue"),
         )
 
-    def transform(self, df: DataFrame) -> DataFrame:
+    def add_revenue_usd(self, df: DataFrame, usd_rate: float) -> DataFrame:
+        """
+        Adds a revenue_usd column by multiplying revenue by usd_rate.
+
+        usd_rate is a plain Python float, fetched ONCE outside the
+        Spark DAG (see ExchangeRateService). Here we just pass it in
+        as a constant using F.lit() - Spark applies it to every row
+        without needing any network call during the transformation.
+        """
+        return df.withColumn("revenue_usd", F.round(F.col("revenue") * F.lit(usd_rate), 2))
+
+    def transform(self, df: DataFrame, usd_rate: float) -> DataFrame:
+        """
+        Runs all transformation steps in order and returns the
+        final, clean DataFrame ready to be written to Iceberg.
+
+        usd_rate: exchange rate fetched once before calling this
+        method (outside the Spark DAG).
+        """
         df = self.apply_status_mapping(df)
         df = self.apply_region_mapping(df)
         df = self.parse_label_fields(df)
         df = self.select_final_columns(df)
+        df = self.add_revenue_usd(df, usd_rate)
         return df

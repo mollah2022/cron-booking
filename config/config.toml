@@ -11,4 +11,4 @@ database = "booking_db"
 table_name = "bookings"
 
 [data]
-raw_json_path = "data/sample_booking.json"
+raw_json_path = "data/bookings_large.jsonl"
