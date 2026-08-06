@@ -6,11 +6,11 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from config.settings import Settings
 from config.spark_session import SparkSessionFactory
-from service.extractor import BookingExtractor
+from service.extractor import BaseExtractor, BookingExtractor
 from service.transformer import BookingTransformer
-from service.exchange_rate_service import ExchangeRateService
+from service.exchange_rate_service import BaseExchangeRateService, ExchangeRateService
 from service.validator import BookingSchemaValidator, BookingDataQualityValidator
-from repository.iceberg_repository import IcebergRepository
+from repository.iceberg_repository import BaseRepository, IcebergRepository
 from utils.mapping_loader import MappingLoader
 from utils.logger import get_logger
 from utils.exceptions import (
@@ -28,7 +28,7 @@ def main() -> None:
 
     # --- OUTSIDE THE SPARK DAG ---
     try:
-        rate_service = ExchangeRateService()
+        rate_service: BaseExchangeRateService = ExchangeRateService()
         usd_rate = rate_service.get_rate("EUR", "USD")
         logger.info(f"Fetched exchange rate (EUR -> USD): {usd_rate}")
     except Exception as e:
@@ -38,12 +38,12 @@ def main() -> None:
     spark = SparkSessionFactory(settings).create_spark_session()
     logger.info("Spark session created.")
 
-    extractor = BookingExtractor(spark)
+    extractor: BaseExtractor = BookingExtractor(spark)
     schema_validator = BookingSchemaValidator()
     data_quality_validator = BookingDataQualityValidator()
     mapping_loader = MappingLoader()
     transformer = BookingTransformer(spark, mapping_loader)
-    repository = IcebergRepository(spark, settings)
+    repository: BaseRepository = IcebergRepository(spark, settings)
 
     # --- EXTRACT ---
     try:
@@ -52,13 +52,12 @@ def main() -> None:
     except Exception as e:
         raise DataExtractionError(f"Failed to extract raw data: {e}") from e
 
-    # --- VALIDATE ---
+    # --- VALIDATE RAW DATA (structure/schema check) ---
     schema_validator.validate(raw_df)
 
     # --- TRANSFORM (inside the Spark DAG) ---
     transformed_df = transformer.transform(raw_df, usd_rate)
     logger.info("Transformation complete.")
-
 
     # --- VALIDATE TRANSFORMED DATA (value/business rule check) ---
     data_quality_validator.validate(transformed_df)
