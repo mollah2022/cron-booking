@@ -84,25 +84,22 @@ def main() -> None:
     total_rows = raw_df.count()
     logger.info(f"Total raw rows found: {total_rows}")
 
-    window_spec = Window.orderBy(F.monotonically_increasing_id())
-    raw_df_indexed = raw_df.withColumn("row_num", F.row_number().over(window_spec))
+    # --- ACTUAL PYSPARK PARTITIONING (for processing, not Iceberg) ---
+    raw_df_partitioned = raw_df.repartition(NUM_BATCHES).withColumn(
+        "batch_partition_id", F.spark_partition_id()
+    )
+    raw_df_partitioned.cache()
 
     snapshot_ids = []
 
     for batch_index in range(NUM_BATCHES):
-        start = batch_index * BATCH_SIZE
-        end = start + BATCH_SIZE
+        logger.info(f"--- Processing batch {batch_index + 1}/{NUM_BATCHES} (Spark partition {batch_index}) ---")
 
-        logger.info(f"--- Processing batch {batch_index + 1}/{NUM_BATCHES} (rows {start + 1} to {end}) ---")
-
-        batch_df = (
-            raw_df_indexed
-            .filter((F.col("row_num") > start) & (F.col("row_num") <= end))
-            .drop("row_num")
-        )
+        batch_df = raw_df_partitioned.filter(
+            F.col("batch_partition_id") == batch_index
+        ).drop("batch_partition_id")
 
         transformed_batch = transformer.transform(batch_df, usd_rate)
-
         transformed_batch = spark.createDataFrame(transformed_batch.rdd, transformed_batch.schema)
 
         repository.write(transformed_batch)
@@ -112,12 +109,10 @@ def main() -> None:
         snapshot_ids.append(snapshot_id)
         logger.info(f"Batch {batch_index + 1} loaded into Iceberg. snapshot_id: {snapshot_id}")
 
-        # Only the FIRST batch is inserted directly into Postgres
         if batch_index == 0:
             first_batch_pandas = transformed_batch.toPandas()
             first_batch_pandas.to_sql(POSTGRES_TABLE, engine, if_exists="replace", index=False)
             logger.info(f"First batch ({len(first_batch_pandas)} rows) inserted into Postgres table '{POSTGRES_TABLE}'.")
-
             record_snapshot(engine, snapshot_id, "first", len(first_batch_pandas))
 
     first_snapshot_id = snapshot_ids[0]
@@ -125,14 +120,12 @@ def main() -> None:
     logger.info(f"First snapshot_id: {first_snapshot_id}")
     logger.info(f"Last snapshot_id: {last_snapshot_id}")
 
-    # --- INCREMENTAL READ (using Iceberg's changelog table) ---
     changelog_df = (
         spark.read.format("iceberg")
         .option("start-snapshot-id", first_snapshot_id)
         .option("end-snapshot-id", last_snapshot_id)
         .load(f"{repository.full_table_name}.changes")
     )
-
     changelog_df = spark.createDataFrame(changelog_df.rdd, changelog_df.schema)
 
     incremental_df = changelog_df.filter(F.col("_change_type") == "INSERT").drop(

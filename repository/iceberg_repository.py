@@ -69,19 +69,23 @@ class IcebergRepository(BaseRepository):
     # WRITE OPERATIONS
     # ------------------------------------------------------------------
 
+    def _repartition_by_partition_column(self, df: DataFrame) -> DataFrame:
+        """
+        Repartitions the Spark DataFrame (in-memory, before writing)
+        using the SAME column the Iceberg table is partitioned by
+        (settings.iceberg_partition_column).
+        """
+        partition_column = self.settings.iceberg_partition_column
+        return df.repartition(F.col(partition_column))
+
     def create_table(self, df: DataFrame) -> None:
         """
         Creates a new Iceberg table using the schema/data of df (CTAS),
         partitioned by settings.iceberg_partition_column.
-
-        Why partition the table?
-        - Without partitioning, every query scans ALL data files.
-        - With partitioning (e.g. by check_in_date), Iceberg groups
-          rows into separate files per date. A query filtering on
-          that date only reads the relevant files, skipping the
-          rest - much faster on large datasets.
         """
         self._ensure_namespace_exists()
+
+        df = self._repartition_by_partition_column(df)
 
         temp_view_name = "__iceberg_repository_create_temp"
         df.createOrReplaceTempView(temp_view_name)
@@ -115,6 +119,7 @@ class IcebergRepository(BaseRepository):
         creating duplicate rows.
         """
         try:
+            df = self._repartition_by_partition_column(df)
             df.writeTo(self.full_table_name).append()
             logger.info(f"Appended data to {self.full_table_name}")
         except Exception as e:
@@ -132,11 +137,9 @@ class IcebergRepository(BaseRepository):
         """
         Upserts data: updates rows that already exist (matched by
         merge_key), inserts rows that don't exist yet.
-
-        Example: if a booking's status changes from "pending" to
-        "cancelled", re-running the job will UPDATE that row instead
-        of creating a duplicate.
         """
+        df = self._repartition_by_partition_column(df)
+
         temp_view_name = "__iceberg_repository_merge_temp"
         df.createOrReplaceTempView(temp_view_name)
 
@@ -160,10 +163,6 @@ class IcebergRepository(BaseRepository):
         """
         Main entry point used by the pipeline: creates the table if
         it doesn't exist yet, otherwise MERGES (upserts) the data.
-
-        We use merge() here instead of append() so that re-running
-        the job with overlapping data (e.g. the same booking with an
-        updated status) does not create duplicate rows.
         """
         self._ensure_namespace_exists()
 
@@ -194,9 +193,6 @@ class IcebergRepository(BaseRepository):
     def optimize(self) -> None:
         """
         Compacts many small data files into fewer, larger files.
-        Important for performance once a table has been written to
-        many times (e.g. daily appends over months create lots of
-        small files, which slows down reads).
         """
         self.spark.sql(
             f"CALL {self.catalog_name}.system.rewrite_data_files('{self.database}.{self.table_name}')"
@@ -214,16 +210,13 @@ class IcebergRepository(BaseRepository):
     def snapshot_history(self) -> DataFrame:
         """
         Returns the Iceberg snapshot history - every write creates a
-        new snapshot, so this shows a timeline of changes (used for
-        auditing or time-travel queries).
+        new snapshot, so this shows a timeline of changes.
         """
         return self.spark.sql(f"SELECT * FROM {self.full_table_name}.history")
 
     def explain(self, query: str = None) -> None:
         """
-        Prints the Spark execution plan for a query against this
-        table. Useful for debugging performance issues.
-        If no query is given, explains a simple SELECT * on the table.
+        Prints the Spark execution plan for a query against this table.
         """
         query = query or f"SELECT * FROM {self.full_table_name}"
         self.spark.sql(query).explain(True)
