@@ -9,6 +9,8 @@ catalog_name = "local"
 [iceberg]
 database = "booking_db"
 table_name = "bookings"
+partition_column = "check_in_date"
 
 [data]
 raw_json_path = "data/bookings_large.jsonl"
+

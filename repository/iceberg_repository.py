@@ -70,28 +70,50 @@ class IcebergRepository(BaseRepository):
     # ------------------------------------------------------------------
 
     def create_table(self, df: DataFrame) -> None:
-        """Creates a new Iceberg table using the schema/data of df (CTAS)."""
+        """
+        Creates a new Iceberg table using the schema/data of df (CTAS),
+        partitioned by settings.iceberg_partition_column.
+
+        Why partition the table?
+        - Without partitioning, every query scans ALL data files.
+        - With partitioning (e.g. by check_in_date), Iceberg groups
+          rows into separate files per date. A query filtering on
+          that date only reads the relevant files, skipping the
+          rest - much faster on large datasets.
+        """
         self._ensure_namespace_exists()
 
         temp_view_name = "__iceberg_repository_create_temp"
         df.createOrReplaceTempView(temp_view_name)
+
+        partition_column = self.settings.iceberg_partition_column
 
         try:
             self.spark.sql(
                 f"""
                 CREATE TABLE {self.full_table_name}
                 USING iceberg
+                PARTITIONED BY ({partition_column})
                 AS SELECT * FROM {temp_view_name}
                 """
             )
-            logger.info(f"Created new Iceberg table: {self.full_table_name}")
+            logger.info(
+                f"Created new Iceberg table: {self.full_table_name} "
+                f"(partitioned by {partition_column})"
+            )
         except Exception as e:
             raise IcebergWriteError(f"Failed to create table {self.full_table_name}: {e}") from e
         finally:
             self.spark.catalog.dropTempView(temp_view_name)
 
     def append(self, df: DataFrame) -> None:
-        """Appends new rows to the existing table without touching old data."""
+        """Appends new rows to the existing table without touching old data.
+
+        NOTE: use this only when you are certain the incoming data
+        contains no rows already present in the table. For regular
+        pipeline runs, prefer merge() (called via write()) to avoid
+        creating duplicate rows.
+        """
         try:
             df.writeTo(self.full_table_name).append()
             logger.info(f"Appended data to {self.full_table_name}")
@@ -135,11 +157,18 @@ class IcebergRepository(BaseRepository):
             self.spark.catalog.dropTempView(temp_view_name)
 
     def write(self, df: DataFrame) -> None:
-        """Convenience method: create table if missing, else append."""
+        """
+        Main entry point used by the pipeline: creates the table if
+        it doesn't exist yet, otherwise MERGES (upserts) the data.
+
+        We use merge() here instead of append() so that re-running
+        the job with overlapping data (e.g. the same booking with an
+        updated status) does not create duplicate rows.
+        """
         self._ensure_namespace_exists()
 
         if self.table_exists():
-            self.append(df)
+            self.merge(df)
         else:
             self.create_table(df)
 
@@ -198,4 +227,3 @@ class IcebergRepository(BaseRepository):
         """
         query = query or f"SELECT * FROM {self.full_table_name}"
         self.spark.sql(query).explain(True)
-

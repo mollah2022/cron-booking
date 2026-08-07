@@ -58,6 +58,7 @@ class Settings:
         # Iceberg table related settings
         self.iceberg_database = config["iceberg"]["database"]
         self.iceberg_table_name = config["iceberg"]["table_name"]
+        self.iceberg_partition_column = config["iceberg"]["partition_column"]
 
         # Raw data path
         raw_json_path = Path(config["data"]["raw_json_path"])
