@@ -2,11 +2,11 @@ from pyspark.sql import SparkSession
 
 from config.settings import Settings
 from infra.spark_session import SparkSessionFactory
-from service.extractor import BaseExtractor, BookingExtractor
+from service.extractor import BookingExtractor
 from service.transformer import BookingTransformer
-from service.exchange_rate_service import BaseExchangeRateService, ExchangeRateService
+from service.exchange_rate_service import ExchangeRateService
 from service.validator import BookingSchemaValidator, BookingDataQualityValidator
-from repository.iceberg_repository import BaseRepository, IcebergRepository
+from repository.iceberg_repository import IcebergRepository
 from utils.mapping_loader import MappingLoader
 from utils.logger import get_logger
 from utils.exceptions import ExchangeRateFetchError
@@ -27,11 +27,11 @@ class PipelineComponents:
         self,
         settings: Settings,
         spark: SparkSession,
-        extractor: BaseExtractor,
+        extractor: BookingExtractor,
         schema_validator: BookingSchemaValidator,
         data_quality_validator: BookingDataQualityValidator,
         transformer: BookingTransformer,
-        repository: BaseRepository,
+        repository: IcebergRepository,
         usd_rate: float,
     ):
         self.settings = settings
@@ -52,7 +52,7 @@ class PipelineComponentsBuilder:
     setup itself.
     """
 
-    def __init__(self, settings: Settings = None, rate_service: BaseExchangeRateService = None):
+    def __init__(self, settings: Settings = None, rate_service=None):
         self.settings = settings or Settings()
         self.rate_service = rate_service or ExchangeRateService()
 

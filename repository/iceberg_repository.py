@@ -1,5 +1,3 @@
-from abc import ABC, abstractmethod
-
 from pyspark.sql import SparkSession, DataFrame, functions as F
 
 from config.settings import Settings
@@ -9,37 +7,14 @@ from utils.exceptions import IcebergWriteError
 logger = get_logger(__name__)
 
 
-class BaseRepository(ABC):
-    """
-    Interface (abstract base class) for anything that can store
-    and retrieve our booking data.
-
-    Why this exists (Dependency Inversion Principle):
-    - job/booking_job.py only needs to know "something with a
-      write() and read() method" - it doesn't need to know we are
-      specifically using Iceberg.
-    - If tomorrow we switch to Delta Lake or plain Parquet tables,
-      we create a new class implementing this same interface
-      (e.g. DeltaLakeRepository), and booking_job.py barely changes.
-    """
-
-    @abstractmethod
-    def write(self, df: DataFrame) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def read(self) -> DataFrame:
-        raise NotImplementedError
-
-
-class IcebergRepository(BaseRepository):
+class IcebergRepository:
     """
     Repository responsible for all read/write operations on the
     local Iceberg booking table.
 
-    This class only knows HOW to talk to Iceberg (create, append,
-    overwrite, merge, delete, optimize, etc). It does NOT know
-    anything about business logic (that lives in transformer.py).
+    This class only knows HOW to talk to Iceberg (create and
+    merge/upsert). It does NOT know anything about business logic
+    (that lives in transformer.py).
     """
 
     def __init__(self, spark: SparkSession, settings: Settings):
@@ -110,29 +85,6 @@ class IcebergRepository(BaseRepository):
         finally:
             self.spark.catalog.dropTempView(temp_view_name)
 
-    def append(self, df: DataFrame) -> None:
-        """Appends new rows to the existing table without touching old data.
-
-        NOTE: use this only when you are certain the incoming data
-        contains no rows already present in the table. For regular
-        pipeline runs, prefer merge() (called via write()) to avoid
-        creating duplicate rows.
-        """
-        try:
-            df = self._repartition_by_partition_column(df)
-            df.writeTo(self.full_table_name).append()
-            logger.info(f"Appended data to {self.full_table_name}")
-        except Exception as e:
-            raise IcebergWriteError(f"Failed to append to {self.full_table_name}: {e}") from e
-
-    def overwrite(self, df: DataFrame) -> None:
-        """Replaces ALL existing data in the table with df's data."""
-        try:
-            df.writeTo(self.full_table_name).overwritePartitions()
-            logger.info(f"Overwrote all data in {self.full_table_name}")
-        except Exception as e:
-            raise IcebergWriteError(f"Failed to overwrite {self.full_table_name}: {e}") from e
-
     def merge(self, df: DataFrame, merge_key: str = "transaction_id") -> None:
         """
         Upserts data: updates rows that already exist (matched by
@@ -170,53 +122,3 @@ class IcebergRepository(BaseRepository):
             self.merge(df)
         else:
             self.create_table(df)
-
-    # ------------------------------------------------------------------
-    # DELETE
-    # ------------------------------------------------------------------
-
-    def delete(self, condition: str) -> None:
-        """
-        Deletes rows matching a SQL condition string.
-        Example: repo.delete("status = 'cancelled'")
-        """
-        try:
-            self.spark.sql(f"DELETE FROM {self.full_table_name} WHERE {condition}")
-            logger.info(f"Deleted rows from {self.full_table_name} WHERE {condition}")
-        except Exception as e:
-            raise IcebergWriteError(f"Failed to delete from {self.full_table_name}: {e}") from e
-
-    # ------------------------------------------------------------------
-    # MAINTENANCE
-    # ------------------------------------------------------------------
-
-    def optimize(self) -> None:
-        """
-        Compacts many small data files into fewer, larger files.
-        """
-        self.spark.sql(
-            f"CALL {self.catalog_name}.system.rewrite_data_files('{self.database}.{self.table_name}')"
-        )
-        logger.info(f"Optimized (compacted) data files for {self.full_table_name}")
-
-    # ------------------------------------------------------------------
-    # READ / INSPECTION
-    # ------------------------------------------------------------------
-
-    def read(self) -> DataFrame:
-        """Reads the full table and returns it as a DataFrame."""
-        return self.spark.table(self.full_table_name)
-
-    def snapshot_history(self) -> DataFrame:
-        """
-        Returns the Iceberg snapshot history - every write creates a
-        new snapshot, so this shows a timeline of changes.
-        """
-        return self.spark.sql(f"SELECT * FROM {self.full_table_name}.history")
-
-    def explain(self, query: str = None) -> None:
-        """
-        Prints the Spark execution plan for a query against this table.
-        """
-        query = query or f"SELECT * FROM {self.full_table_name}"
-        self.spark.sql(query).explain(True)
