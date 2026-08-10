@@ -18,11 +18,10 @@ class IncrementalSyncer:
         spark = self.components.spark
         repository = self.components.repository
 
-        # Iceberg's built-in changelog metadata table, queried via SQL
-        query = f"""
-            SELECT *
-            FROM {repository.full_table_name}.changes
-        """
+        logger.info(
+            f"[SOURCE - changelog]: {repository.full_table_name}.changes "
+            f"(start-snapshot-id={first_snapshot_id}, end-snapshot-id={last_snapshot_id})"
+        )
         changelog_df = (
             spark.read.format("iceberg")
             .option("start-snapshot-id", first_snapshot_id)
@@ -30,13 +29,15 @@ class IncrementalSyncer:
             .load(f"{repository.full_table_name}.changes")
         )
         changelog_df = spark.createDataFrame(changelog_df.rdd, changelog_df.schema)
-        changelog_df.createOrReplaceTempView("__changelog_temp")
 
-        incremental_df = spark.sql("""
-            SELECT * FROM __changelog_temp WHERE _change_type = 'INSERT'
-        """).drop("_change_type", "_change_ordinal", "_commit_snapshot_id")
+        incremental_df = changelog_df.filter(F.col("_change_type") == "INSERT").drop(
+            "_change_type", "_change_ordinal", "_commit_snapshot_id"
+        )
 
         logger.info(f"Incremental rows found: {incremental_df.count()}")
+
+        # Show 20 rows in terminal (instead of only storing to DB)
+        incremental_df.show(20, truncate=False)
 
         incremental_pandas = incremental_df.toPandas()
         incremental_pandas.to_sql(self.postgres_table, self.engine, if_exists="append", index=False)

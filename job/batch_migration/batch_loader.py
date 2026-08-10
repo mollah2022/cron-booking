@@ -27,6 +27,8 @@ class BatchLoader:
             "batch_partition_id", F.spark_partition_id()
         )
 
+        first_snapshot_id = None
+
         for batch_index in range(self.num_batches):
             logger.info(f"--- Batch {batch_index + 1}/{self.num_batches} ---")
 
@@ -48,17 +50,15 @@ class BatchLoader:
         return first_snapshot_id, last_snapshot_id
 
     def _get_snapshot_id_via_sql(self, spark, repository, order: str):
-        """
-        Uses Iceberg's built-in .snapshots metadata table (queried via
-        plain SQL) to get the oldest (ASC) or newest (DESC) snapshot_id.
-        """
         query = f"""
             SELECT snapshot_id
             FROM {repository.full_table_name}.snapshots
             ORDER BY committed_at {order}
             LIMIT 1
         """
+        logger.info(f"[SOURCE QUERY - fetching snapshot_id ({order})]:\n{query}")
         row = spark.sql(query).collect()[0]
+        logger.info(f"Snapshot_id obtained from table '{repository.full_table_name}.snapshots': {row['snapshot_id']}")
         return row["snapshot_id"]
 
     def _insert_first_batch_to_postgres(self, transformed_batch, snapshot_id: int) -> None:
