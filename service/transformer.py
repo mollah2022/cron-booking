@@ -15,6 +15,22 @@ class BookingTransformer:
         self.spark = spark
         self.mapping_loader = mapping_loader
 
+    def transform(self, df: DataFrame, usd_rate: float) -> DataFrame:
+        """
+        Runs all transformation steps in order and returns the
+        final, clean DataFrame ready to be written to Iceberg.
+
+        usd_rate: exchange rate fetched once before calling this
+        method (outside the Spark DAG).
+        """
+        df = self.apply_status_mapping(df)
+        df = self.apply_region_mapping(df)
+        df = self.parse_label_fields(df)
+        df = self.select_final_columns(df)
+        df = self.add_revenue_usd(df, usd_rate)
+        return df
+
+
     def _build_status_lookup_df(self) -> DataFrame:
         status_mapping = self.mapping_loader.load_status_mapping()
         rows = [(k, v) for k, v in status_mapping.items()]
@@ -32,6 +48,8 @@ class BookingTransformer:
         lookup = status_lookup.alias("lookup")
 
         joined = main.join(
+
+            
             F.broadcast(lookup),
             F.col("main.status") == F.col("lookup.raw_status"),
             "left",
@@ -117,18 +135,3 @@ class BookingTransformer:
         without needing any network call during the transformation.
         """
         return df.withColumn("revenue_usd", F.round(F.col("revenue") * F.lit(usd_rate), 2))
-
-    def transform(self, df: DataFrame, usd_rate: float) -> DataFrame:
-        """
-        Runs all transformation steps in order and returns the
-        final, clean DataFrame ready to be written to Iceberg.
-
-        usd_rate: exchange rate fetched once before calling this
-        method (outside the Spark DAG).
-        """
-        df = self.apply_status_mapping(df)
-        df = self.apply_region_mapping(df)
-        df = self.parse_label_fields(df)
-        df = self.select_final_columns(df)
-        df = self.add_revenue_usd(df, usd_rate)
-        return df
