@@ -25,5 +25,8 @@ data/
 # OS
 .DS_Store
 
+# Local DB files
+*.db
+
 # Env / secrets (not used in this project, kept as a safety net)
 .env

@@ -4,7 +4,7 @@ This repository processes raw booking JSON data with PySpark and writes the clea
 
 ## What is included
 
-- `job/booking_job.py` — main ETL entry point
+- `job/` — ETL entrypoints and runners, including normal run and batch migration
 - `service/extractor.py` — read raw JSON into a Spark DataFrame
 - `service/transformer.py` — clean and transform the data into final schema
 - `repository/iceberg_repository.py` — create or append to the Iceberg table
@@ -22,7 +22,7 @@ This repository processes raw booking JSON data with PySpark and writes the clea
 1. Go to the project root:
 
    ```bash
-   cd /home/sajib/Desktop/cron-job
+   cd /home/w3e57/Desktop/cron-booking
    ```
 
 2. Create and activate a virtual environment:
@@ -43,18 +43,24 @@ This repository processes raw booking JSON data with PySpark and writes the clea
 Run the pipeline from the repository root:
 
 ```bash
-cd /home/sajib/Desktop/cron-job
+cd /home/w3e57/Desktop/cron-booking
 source venv/bin/activate
-python job/booking_job.py
+python job/cli.py
+```
+
+To run the batch migration flow instead of the normal run:
+
+```bash
+python job/cli.py --batch
 ```
 
 > Running from inside `job/` may fail because Python cannot resolve the top-level `config` package. Use the project root or the full script path.
 
 ## What happens when you run it
 
-- Reads raw JSON from `data/sample_booking.json`
+- Reads raw JSON from `data/bookings_large.jsonl`
 - Cleans and transforms the data
-- Writes to the Iceberg table `local.booking_db.bookings`
+- Writes to the Iceberg table defined in `config/config.toml`
 
 ## Notes
 
@@ -71,17 +77,26 @@ cron-job/
 │   ├── settings.py
 │   └── spark_session.py
 ├── data/
-│   └── sample_booking.json
+│   └── bookings_large.jsonl
 ├── job/
-│   └── booking_job.py
+│   ├── batch_migration/
+│   ├── cli.py
+│   ├── common.py
+│   ├── normal_run.py
+│   └── verify_booking_table.py
 ├── repository/
 │   └── iceberg_repository.py
 ├── service/
 │   ├── extractor.py
-│   └── transformer.py
+│   ├── exchange_rate_service.py
+│   ├── transformer.py
+│   └── validator.py
 ├── utils/
 │   ├── mapping_loader.py
-│   └── *.json
+│   ├── exceptions.py
+│   ├── logger.py
+│   ├── region_mapping.json
+│   └── status_mapping.json
 ├── warehouse/
 ├── requirements.txt
 └── README.md
